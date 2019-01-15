@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"net"
 	"net/http"
 	"os"
@@ -19,6 +21,7 @@ type Config struct {
 	http    bool
 	domain  string
 	timeout time.Duration
+	verbose bool
 }
 
 func main() {
@@ -31,8 +34,16 @@ func main() {
 	flag.DurationVar(&app.timeout, "timeout", time.Second*30, "http timeout")
 
 	displayVersion := flag.Bool("version", false, "display version")
-	verbose := flag.Bool("verbose", false, "verbose output")
+	flag.BoolVar(&app.verbose,"verbose", false, "verbose output")
 	flag.Parse()
+
+	log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
+	zerolog.TimeFieldFormat = "2006-01-02T15:04:05.000-0700"
+	if app.verbose {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	}else{
+		zerolog.SetGlobalLevel(zerolog.ErrorLevel)
+	}
 
 	if *displayVersion {
 		fmt.Println(version)
@@ -48,8 +59,8 @@ func main() {
 	}
 
 	if err != nil {
-		if *verbose {
-			fmt.Println(err)
+		if app.verbose {
+			log.Error().Err(err).Msg("received error")
 		}
 		os.Exit(1)
 	} else {
@@ -80,10 +91,14 @@ func (c *Config) httpCheck() error {
 	req.Header.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36")
 	req.Header.Add("Accept-Language", "en-US,en;q=0.8")
 
+	log.Debug().Msg("issuing HTTP request")
+
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
+
+	log.Debug().Int("status code",resp.StatusCode).Msg("received response")
 
 	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
 		return nil
