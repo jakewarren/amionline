@@ -1,20 +1,22 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"net"
 	"net/http"
 	"os"
 	"regexp"
+	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/pkg/errors"
-	"time"
 )
 
-var version string
+var version = "(ﾉ☉ヮ⚆)ﾉ ⌒*:･ﾟ✧"
 
 type Config struct {
 	dns     bool
@@ -25,7 +27,6 @@ type Config struct {
 }
 
 func main() {
-
 	var app Config
 
 	flag.BoolVar(&app.dns, "dns", false, "check dns resolution")
@@ -34,14 +35,14 @@ func main() {
 	flag.DurationVar(&app.timeout, "timeout", time.Second*30, "http timeout")
 
 	displayVersion := flag.Bool("version", false, "display version")
-	flag.BoolVar(&app.verbose,"verbose", false, "verbose output")
+	flag.BoolVar(&app.verbose, "verbose", false, "verbose output")
 	flag.Parse()
 
 	log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
 	zerolog.TimeFieldFormat = "2006-01-02T15:04:05.000-0700"
 	if app.verbose {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	}else{
+	} else {
 		zerolog.SetGlobalLevel(zerolog.ErrorLevel)
 	}
 
@@ -52,10 +53,10 @@ func main() {
 
 	var err error
 
-	if app.dns {
-		err = app.dnsCheck()
-	} else if app.http {
+	if app.http {
 		err = app.httpCheck()
+	} else { // default to a DNS check
+		err = app.dnsCheck()
 	}
 
 	if err != nil {
@@ -69,8 +70,21 @@ func main() {
 }
 
 func (c *Config) dnsCheck() error {
-	_, err := net.LookupHost(c.domain)
+	ctx := context.Background()
+	resolver := &net.Resolver{
+		Dial:     cloudflareDNSDialer,
+		PreferGo: true,
+	}
+	log.Debug().Str("domain", c.domain).Msg("issuing DNS request")
+	ips, err := resolver.LookupHost(ctx, c.domain)
+	log.Debug().Str("domain", c.domain).Strs("ips", ips).Msg("received DNS response")
 	return err
+}
+
+// cloudflareDNSDialer Dialer pointing to the DNS resolver from cloudflare.
+func cloudflareDNSDialer(ctx context.Context, network, address string) (net.Conn, error) {
+	d := net.Dialer{}
+	return d.DialContext(ctx, "udp", "1.1.1.1:53")
 }
 
 func (c *Config) httpCheck() error {
@@ -98,12 +112,11 @@ func (c *Config) httpCheck() error {
 		return err
 	}
 
-	log.Debug().Int("status code",resp.StatusCode).Msg("received response")
+	log.Debug().Int("status code", resp.StatusCode).Msg("received response")
 
 	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
 		return nil
 	} else {
 		return errors.New(fmt.Sprintf("%s (%d)", "Invalid status code", resp.StatusCode))
 	}
-
 }
